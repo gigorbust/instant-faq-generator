@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Instant FAQ Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b0c0f; --card:#12141a; --muted:#9aa3b2; --text:#e7ecf3; --acc:#2dd4bf; --border:#1c2130; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--text); }
+    .wrap { max-width:900px; margin:48px auto; padding:0 20px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    h1 { font-size:26px; margin:0 0 10px; letter-spacing:.3px; }
+    p.sub { color:var(--muted); margin:0 0 18px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+    input[type="url"]{ flex:1; min-width:260px; padding:12px 14px; border-radius:12px; border:1px solid var(--border); background:#0e1116; color:#e7ecf3; outline:none; }
+    label.chk { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:14px; }
+    .btn { background:var(--acc); color:#06201b; border:none; padding:12px 16px; border-radius:12px; font-weight:600; cursor:pointer; transition:transform .06s ease; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn:active { transform: translateY(1px); }
+    .bar { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; margin-top:12px; }
+    .hint { font-size:12px; color:var(--muted); margin-top:6px; min-height:1em; }
+    .list { margin-top:18px; }
+    .faq-item { border-top:1px solid var(--border); }
+    .faq-h { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; background:none; border:none; color:inherit; text-align:left; padding:16px 4px; cursor:pointer; }
+    .faq-h span.q { font-weight:600; }
+    .faq-h .tools { display:flex; gap:8px; opacity:.7; }
+    .tool { background:#0e1116; border:1px solid var(--border); color:#e7ecf3; padding:6px 10px; border-radius:10px; font-size:12px; cursor:pointer; }
+    .faq-b { max-height:0; overflow:hidden; transition:max-height .28s ease; }
+    .faq-b-inner { padding:0 4px 16px 4px; color:#cdd5e0; }
+    .toast { position:fixed; right:16px; bottom:16px; background:#10141b; border:1px solid var(--border); color:#d9e3ee; padding:10px 12px; border-radius:10px; box-shadow:0 10px 20px rgba(0,0,0,.4); display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Instant FAQ Generator</h1>
+      <p class="sub">Enter a site URL → we draft accurate FAQs. Edit/remove, load more, then export a drop-in HTML snippet or JSON-LD.</p>
+
+      <div class="row">
+        <input id="inpUrl" type="url" placeholder="https://example.com" />
+        <label class="chk"><input id="chkSearch" type="checkbox" checked /> Use web search signals</label>
+        <button id="btnGen" class="btn">Generate FAQs</button>
+      </div>
+      <div class="hint" id="status"></div>
+
+      <div id="faqList" class="list"></div>
+
+      <div class="bar">
+        <button id="btnMore" class="btn" disabled>Load more</button>
+        <button id="btnCopyHtml" class="btn" disabled>Copy HTML</button>
+        <button id="btnCopyJsonLd" class="btn" disabled>Copy JSON-LD</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const $ = s => document.querySelector(s);
+    const listEl = $('#faqList'), statusEl = $('#status'), toast = $('#toast');
+    let faqs = [], lastUrl = '', includeSearch = true;
+
+    function showToast(msg){ toast.textContent = msg; toast.style.display='block'; setTimeout(()=>toast.style.display='none', 1500); }
+    function setBusy(b){
+      $('#btnGen').disabled = b;
+      $('#btnMore').disabled = b || faqs.length===0;
+      $('#btnCopyHtml').disabled = faqs.length===0;
+      $('#btnCopyJsonLd').disabled = faqs.length===0;
+      statusEl.textContent = b ? 'Working…' : '';
+    }
+    function norm(s){ return (s||'').toLowerCase().replace(/[^\w\s]/g,'').replace(/\s+/g,' ').trim(); }
+
+    function render(){
+      listEl.innerHTML = '';
+      faqs.forEach((x,i)=>{
+        const row = document.createElement('div'); row.className='faq-item';
+        const h = document.createElement('button'); h.className='faq-h'; h.setAttribute('aria-expanded','false'); h.setAttribute('aria-controls', 'faqb-'+i);
+        const qSpan = document.createElement('span'); qSpan.className='q'; qSpan.textContent=x.q;
+        const tools = document.createElement('div'); tools.className='tools';
+        const btnE = document.createElement('button'); btnE.className='tool'; btnE.textContent='✎ Edit';
+        const btnD = document.createElement('button'); btnD.className='tool'; btnD.textContent='🗑 Remove';
+        tools.appendChild(btnE); tools.appendChild(btnD);
+        h.appendChild(qSpan); h.appendChild(tools);
+
+        const b = document.createElement('div'); b.className='faq-b'; b.id='faqb-'+i;
+        const inner = document.createElement('div'); inner.className='faq-b-inner';
+        const p = document.createElement('div'); p.textContent = x.a; inner.appendChild(p);
+
+        if (x.sources && x.sources.length){
+          const s = document.createElement('div'); s.style.marginTop='8px'; s.style.fontSize='12px'; s.style.color='#9aa3b2';
+          s.textContent = 'Sources: ';
+          x.sources.slice(0,4).forEach((u,j)=>{ const a=document.createElement('a'); a.href=u; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=new URL(u).hostname.replace('www.',''); s.appendChild(a); if(j<x.sources.length-1) s.append(' · '); });
+          inner.appendChild(s);
+        }
+
+        h.addEventListener('click', ()=>{
+          const open = b.style.maxHeight && b.style.maxHeight !== '0px';
+          document.querySelectorAll('.faq-b').forEach(el=>{ el.style.maxHeight='0px'; el.previousSibling?.setAttribute?.('aria-expanded','false'); });
+          if (!open){ h.setAttribute('aria-expanded','true'); b.style.maxHeight = (inner.scrollHeight + 8)+'px'; }
+        });
+        btnD.addEventListener('click', ()=>{ faqs.splice(i,1); render(); showToast('Removed'); });
+        btnE.addEventListener('click', ()=>{
+          inner.innerHTML = '';
+          const iq = document.createElement('input'); iq.value=x.q; iq.style.width='100%';
+          const ia = document.createElement('textarea'); ia.value=x.a; ia.rows=5; ia.style.width='100%';
+          const save = document.createElement('button'); save.className='tool'; save.textContent='✓ Save';
+          const cancel = document.createElement('button'); cancel.className='tool'; cancel.textContent='Cancel';
+          inner.append(iq, ia, save, cancel);
+          save.onclick = ()=>{ x.q=iq.value.trim(); x.a=ia.value.trim(); render(); showToast('Saved'); };
+          cancel.onclick = ()=> render();
+          b.style.maxHeight = (inner.scrollHeight + 8)+'px';
+        });
+
+        row.appendChild(h); row.appendChild(b); b.appendChild(inner); listEl.appendChild(row);
+      });
+      $('#btnMore').disabled = faqs.length===0;
+      $('#btnCopyHtml').disabled = faqs.length===0;
+      $('#btnCopyJsonLd').disabled = faqs.length===0;
+    }
+
+    async function callApi(url, existing){
+      // NOTE: When deployed, /api/generate-faqs will be available at the same domain.
+      const res = await fetch('/api/generate-faqs', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ url, includeSearch, existingQuestions: existing })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'API error');
+      return res.json();
+    }
+
+    $('#btnGen').onclick = async ()=>{
+      const url = $('#inpUrl').value.trim();
+      includeSearch = $('#chkSearch').checked;
+      if (!url) return showToast('Enter a valid URL');
+      setBusy(true);
+      try {
+        lastUrl = url;
+        const data = await callApi(url, []);
+        faqs = data.faqs || [];
+        render(); showToast('Generated FAQs');
+      } catch(e){ console.error(e); showToast('Error: '+e.message); }
+      setBusy(false);
+    };
+
+    $('#btnMore').onclick = async ()=>{
+      if (!lastUrl) return;
+      setBusy(true);
+      try {
+        const existing = faqs.map(x=>x.q);
+        const data = await callApi(lastUrl, existing);
+        const seen = new Set(faqs.map(x=>norm(x.q)));
+        (data.faqs||[]).forEach(x=>{ if (!seen.has(norm(x.q))) { faqs.push(x); seen.add(norm(x.q)); } });
+        render(); showToast('Added more FAQs');
+      } catch(e){ console.error(e); showToast('Error: '+e.message); }
+      setBusy(false);
+    };
+
+    function buildExportHtml(){
+      const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const items = faqs.map((x,i)=>`
+        <div class="faqgen-item">
+          <button class="faqgen-h" aria-expanded="false" aria-controls="faqgen-b-${i}"><span>${esc(x.q)}</span></button>
+          <div id="faqgen-b-${i}" class="faqgen-b"><div class="faqgen-b-inner">${esc(x.a)}</div></div>
+        </div>`).join('\n');
+      return `<!-- FAQGEN snippet start -->
+<div id="faqgen-root">
+  <style>
+  #faqgen-root{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#0b1220;}
+  #faqgen-root .faqgen-item{border-top:1px solid rgba(0,0,0,.1)}
+  #faqgen-root .faqgen-h{width:100%;text-align:left;background:none;border:none;padding:14px 6px;font-weight:600;cursor:pointer}
+  #faqgen-root .faqgen-b{max-height:0;overflow:hidden;transition:max-height .28s ease}
+  #faqgen-root .faqgen-b-inner{padding:0 6px 14px 6px;color:#1f2937}
+  #faqgen-root .faqgen-h:focus{outline:2px solid #22c55e;outline-offset:2px;border-radius:8px}
+  </style>
+  <div class="faqgen-list">
+    ${items}
+  </div>
+  <script>
+  (function(){
+    var hds = document.querySelectorAll('#faqgen-root .faqgen-h');
+    hds.forEach(function(h){
+      h.addEventListener('click', function(){
+        var open = h.getAttribute('aria-expanded')==='true';
+        document.querySelectorAll('#faqgen-root .faqgen-b').forEach(function(b){ b.style.maxHeight='0px'; });
+        document.querySelectorAll('#faqgen-root .faqgen-h').forEach(function(x){ x.setAttribute('aria-expanded','false'); });
+        if(!open){
+          h.setAttribute('aria-expanded','true');
+          var id = h.getAttribute('aria-controls');
+          var b = document.getElementById(id);
+          if(b){ b.style.maxHeight = (b.querySelector('.faqgen-b-inner').scrollHeight + 8) + 'px'; }
+        }
+      });
+    });
+  })();
+  </script>
+</div>
+<!-- FAQGEN snippet end -->`;
+    }
+
+    function buildJsonLd(){
+      const data = {
+        "@context":"https://schema.org",
+        "@type":"FAQPage",
+        "mainEntity": faqs.map(x=>({"@type":"Question","name":x.q,"acceptedAnswer":{"@type":"Answer","text":x.a}}))
+      };
+      return '<script type="application/ld+json">'+JSON.stringify(data)+'</script>';
+    }
+
+    $('#btnCopyHtml').onclick = async ()=>{ await navigator.clipboard.writeText(buildExportHtml()); showToast('HTML snippet copied'); };
+    $('#btnCopyJsonLd').onclick = async ()=>{ await navigator.clipboard.writeText(buildJsonLd()); showToast('JSON-LD copied'); };
+  </script>
+</body>
+</html>
