@@ -74,12 +74,22 @@
       listEl.innerHTML = '';
       faqs.forEach((x,i)=>{
         const row = document.createElement('div'); row.className='faq-item';
-        const h = document.createElement('button'); h.className='faq-h'; h.setAttribute('aria-expanded','false'); h.setAttribute('aria-controls', 'faqb-'+i);
-        const qSpan = document.createElement('span'); qSpan.className='q'; qSpan.textContent=x.q;
-        const tools = document.createElement('div'); tools.className='tools';
+
+        const h = document.createElement('button');
+        h.className='faq-h';
+        h.setAttribute('aria-expanded','false');
+        h.setAttribute('aria-controls', 'faqb-'+i);
+
+        const qSpan = document.createElement('span');
+        qSpan.className='q';
+        qSpan.textContent=x.q;
+
+        const tools = document.createElement('div');
+        tools.className='tools';
         const btnE = document.createElement('button'); btnE.className='tool'; btnE.textContent='✎ Edit';
         const btnD = document.createElement('button'); btnD.className='tool'; btnD.textContent='🗑 Remove';
         tools.appendChild(btnE); tools.appendChild(btnD);
+
         h.appendChild(qSpan); h.appendChild(tools);
 
         const b = document.createElement('div'); b.className='faq-b'; b.id='faqb-'+i;
@@ -89,7 +99,12 @@
         if (x.sources && x.sources.length){
           const s = document.createElement('div'); s.style.marginTop='8px'; s.style.fontSize='12px'; s.style.color='#9aa3b2';
           s.textContent = 'Sources: ';
-          x.sources.slice(0,4).forEach((u,j)=>{ const a=document.createElement('a'); a.href=u; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent=new URL(u).hostname.replace('www.',''); s.appendChild(a); if(j<x.sources.length-1) s.append(' · '); });
+          x.sources.slice(0,4).forEach((u,j)=>{
+            const a=document.createElement('a');
+            a.href=u; a.target='_blank'; a.rel='noopener noreferrer';
+            a.textContent=new URL(u).hostname.replace('www.','');
+            s.appendChild(a); if(j<x.sources.length-1) s.append(' · ');
+          });
           inner.appendChild(s);
         }
 
@@ -120,10 +135,15 @@
 
     async function callApi(url, existing){
       const res = await fetch('/api/generate-faqs', {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ url, includeSearch, existingQuestions: existing })
       });
-      if (!res.ok) throw new Error((await res.json()).error || 'API error');
+      if (!res.ok) {
+        let msg = 'API error';
+        try { const j = await res.json(); msg = j.error || j.message || msg; } catch {}
+        throw new Error(msg);
+      }
       return res.json();
     }
 
@@ -161,6 +181,7 @@
           <button class="faqgen-h" aria-expanded="false" aria-controls="faqgen-b-${i}"><span>${esc(x.q)}</span></button>
           <div id="faqgen-b-${i}" class="faqgen-b"><div class="faqgen-b-inner">${esc(x.a)}</div></div>
         </div>`).join('\n');
+
       return `<!-- FAQGEN snippet start -->
 <div id="faqgen-root">
   <style>
@@ -191,7 +212,7 @@
       });
     });
   })();
-  </script>
+  <\/script>
 </div>
 <!-- FAQGEN snippet end -->`;
     }
@@ -202,7 +223,7 @@
         "@type":"FAQPage",
         "mainEntity": faqs.map(x=>({"@type":"Question","name":x.q,"acceptedAnswer":{"@type":"Answer","text":x.a}}))
       };
-      return '<script type="application/ld+json">'+JSON.stringify(data)+'</script>';
+      return '<script type="application/ld+json">'+JSON.stringify(data)+'<\/script>';
     }
 
     $('#btnCopyHtml').onclick = async ()=>{ await navigator.clipboard.writeText(buildExportHtml()); showToast('HTML snippet copied'); };
